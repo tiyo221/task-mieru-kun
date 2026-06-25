@@ -56,6 +56,12 @@
   .btn.primary:hover { filter: brightness(1.05); }
   .btn.danger { color: var(--warn-high); border-color: #f3c6c8; }
   .btn.small { padding: 3px 8px; font-size: 12px; }
+  .btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .baseline-ctrl { display: inline-flex; align-items: center; gap: 6px; padding-left: 10px; margin-left: 2px; border-left: 1px solid var(--border); }
+  #baselineInfo { font-size: 12px; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+  .clear-x { border: none; background: none; cursor: pointer; color: var(--text-sub); font-size: 14px; line-height: 1; padding: 0 2px; }
+  .clear-x:hover { color: var(--warn-high); }
   label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-sub); }
   label.field > input, label.field > select, label.field > textarea {
     padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: #fff;
@@ -156,6 +162,11 @@
   <span class="spacer"></span>
   <button class="btn" id="addMemberBtn">＋メンバー</button>
   <button class="btn" id="addTaskBtn">＋タスク</button>
+  <span class="baseline-ctrl">
+    <button class="btn" id="saveBaselineBtn" title="現在の全タスクを計画として保存（上書き）">計画を保存</button>
+    <button class="btn" id="baselineToggle" title="推移グラフに計画を点線で重ねる">計画を重ねる</button>
+    <span id="baselineInfo" class="muted"></span>
+  </span>
   <button class="btn" id="exportBtn">エクスポート</button>
   <button class="btn" id="importBtn">インポート</button>
   <input type="file" id="importFile" accept="application/json" class="hidden">
@@ -179,7 +190,8 @@ function defaultData() {
   return {
     members: [],
     tasks: [],
-    settings: {}
+    settings: {},
+    baseline: null // 計画スナップショット { savedAt, tasks:[...] }
   };
 }
 
@@ -192,6 +204,7 @@ function loadData() {
     d.members = Array.isArray(d.members) ? d.members : [];
     d.tasks = Array.isArray(d.tasks) ? d.tasks : [];
     d.settings = d.settings || {};
+    d.baseline = (d.baseline && Array.isArray(d.baseline.tasks)) ? d.baseline : null;
     return d;
   } catch (e) {
     console.error("データ読み込みに失敗。初期データを使用します。", e);
@@ -263,10 +276,12 @@ function mondayOf(s) {
 }
 
 /* ============ 負担計算 ============ */
-// 指定日にメンバーがアクティブに抱えるタスクの load 合計
-function dailyLoad(memberId, dateStr) {
+// 指定日にメンバーがアクティブに抱えるタスクの load 合計。
+// tasks を省略すると現在のデータ、計画線の描画時は baseline のタスク配列を渡す。
+function dailyLoad(memberId, dateStr, tasks) {
+  const src = tasks || data.tasks;
   let sum = 0;
-  for (const t of data.tasks) {
+  for (const t of src) {
     if (t.memberId !== memberId) continue;
     if (dateStr >= t.startDate && dateStr <= t.endDate) sum += Number(t.load) || 0;
   }
@@ -274,9 +289,9 @@ function dailyLoad(memberId, dateStr) {
 }
 
 // その週（月曜始まり）の平均日次負担。中長期の俯瞰用に週単位へ集約する。
-function weeklyLoad(memberId, mondayStr) {
+function weeklyLoad(memberId, mondayStr, tasks) {
   let sum = 0;
-  for (let i = 0; i < 7; i++) sum += dailyLoad(memberId, addDaysStr(mondayStr, i));
+  for (let i = 0; i < 7; i++) sum += dailyLoad(memberId, addDaysStr(mondayStr, i), tasks);
   return sum / 7;
 }
 
@@ -320,6 +335,7 @@ const ui = {
   range: "quarter",             // quarter | half | year
   anchor: mondayOf(todayStr()), // 表示期間の基準（週の月曜）
   selectedMemberId: null,
+  showBaseline: false,          // 計画ベースラインを推移グラフに重ねるか
 };
 
 function weeksCount() { return (RANGES[ui.range] || RANGES.quarter).weeks; }
@@ -345,6 +361,7 @@ function render() {
   const memSel = document.getElementById("memberSelect");
   memSel.classList.toggle("hidden", ui.view !== "personal");
   syncMemberSelect();
+  syncBaselineControls();
 
   saveData();
 
@@ -364,6 +381,36 @@ function syncMemberSelect() {
     ui.selectedMemberId = data.members[0] ? data.members[0].id : null;
   }
   if (ui.selectedMemberId) sel.value = ui.selectedMemberId;
+}
+
+// 計画ベースライン関連のヘッダー操作を状態に同期する
+function syncBaselineControls() {
+  const has = !!data.baseline;
+  const toggle = document.getElementById("baselineToggle");
+  toggle.disabled = !has;
+  toggle.classList.toggle("active", has && ui.showBaseline);
+  const info = document.getElementById("baselineInfo");
+  if (has) {
+    info.innerHTML = `計画: ${data.baseline.savedAt} <button class="clear-x" id="clearBaselineBtn" title="計画を削除">×</button>`;
+    document.getElementById("clearBaselineBtn").onclick = clearBaseline;
+  } else {
+    info.textContent = "計画 未保存";
+  }
+}
+
+// 現在の全タスクを計画として保存（単一・上書き）
+function saveBaseline() {
+  if (data.baseline && !confirm("既存の計画を上書きします。よろしいですか？")) return;
+  data.baseline = { savedAt: todayStr(), tasks: JSON.parse(JSON.stringify(data.tasks)) };
+  ui.showBaseline = true; // 保存したら自動で重ねて表示
+  render();
+}
+
+function clearBaseline() {
+  if (!confirm("保存した計画を削除します。よろしいですか？")) return;
+  data.baseline = null;
+  ui.showBaseline = false;
+  render();
 }
 
 function rangeLabel() {
@@ -508,7 +555,11 @@ function loadColor(load) {
 /* ---- 負担推移 折れ線グラフ ---- */
 function chartPanel(members) {
   const weeks = visibleWeeks();
-  const panel = el(`<div class="panel"><h2>負担推移 <span class="hint">週ごとの平均負担（100=キャパシティ）</span></h2></div>`);
+  const baseTasks = (ui.showBaseline && data.baseline) ? data.baseline.tasks : null;
+  const hint = baseTasks
+    ? `週ごとの平均負担（100=キャパシティ）／実線=現在・点線=計画(${data.baseline.savedAt})`
+    : "週ごとの平均負担（100=キャパシティ）";
+  const panel = el(`<div class="panel"><h2>負担推移 <span class="hint">${hint}</span></h2></div>`);
   const wrap = el(`<div class="chart-wrap"></div>`);
 
   const padL = 36, padR = 14, padT = 12, padB = 28;
@@ -518,9 +569,12 @@ function chartPanel(members) {
   const plotH = 180;
   const H = padT + plotH + padB;
 
-  // y最大値（100超に対応）
+  // y最大値（100超・計画線に対応）
   let maxLoad = 100;
-  for (const m of members) for (const w of weeks) maxLoad = Math.max(maxLoad, weeklyLoad(m.id, w));
+  for (const m of members) for (const w of weeks) {
+    maxLoad = Math.max(maxLoad, weeklyLoad(m.id, w));
+    if (baseTasks) maxLoad = Math.max(maxLoad, weeklyLoad(m.id, w, baseTasks));
+  }
   const yMax = Math.ceil(maxLoad / 50) * 50;
   const x = (i) => padL + i * stepX;
   const y = (v) => padT + plotH - (v / yMax) * plotH;
@@ -544,7 +598,14 @@ function chartPanel(members) {
     if (i % labelEvery !== 0) return;
     svg += `<text x="${x(i)}" y="${padT + plotH + 14}" text-anchor="middle" font-size="9" fill="#6b7686">${fmtMD(w)}</text>`;
   });
-  // 各メンバーの折れ線
+  // 計画ベースライン（点線・淡色）を先に描く
+  if (baseTasks) {
+    for (const m of members) {
+      const pts = weeks.map((w, i) => `${x(i)},${y(weeklyLoad(m.id, w, baseTasks))}`);
+      svg += `<polyline fill="none" stroke="${m.color}" stroke-width="2" stroke-dasharray="5 3" opacity="0.5" points="${pts.join(" ")}" />`;
+    }
+  }
+  // 各メンバーの折れ線（現在＝実線）
   for (const m of members) {
     const pts = weeks.map((w, i) => `${x(i)},${y(weeklyLoad(m.id, w))}`);
     svg += `<polyline fill="none" stroke="${m.color}" stroke-width="2" points="${pts.join(" ")}" />`;
@@ -562,6 +623,9 @@ function chartPanel(members) {
   const legend = el(`<div class="legend"></div>`);
   for (const m of members) {
     legend.appendChild(el(`<span class="item"><span class="dot" style="background:${m.color}"></span>${esc(m.name)}</span>`));
+  }
+  if (baseTasks) {
+    legend.appendChild(el(`<span class="item muted"><span class="dot" style="background:#6b7686"></span>実線=現在 ／ 点線=計画</span>`));
   }
   panel.appendChild(legend);
   return panel;
@@ -753,8 +817,10 @@ function importData(file) {
       data = {
         members: obj.members,
         tasks: obj.tasks,
-        settings: obj.settings || {}
+        settings: obj.settings || {},
+        baseline: (obj.baseline && Array.isArray(obj.baseline.tasks)) ? obj.baseline : null
       };
+      ui.showBaseline = false;
       ui.selectedMemberId = data.members[0] ? data.members[0].id : null;
       render();
       alert("インポートが完了しました。");
@@ -778,6 +844,8 @@ document.getElementById("nextBtn").onclick = () => { ui.anchor = addDaysStr(mond
 document.getElementById("todayBtn").onclick = () => { ui.anchor = mondayOf(todayStr()); render(); };
 document.getElementById("addMemberBtn").onclick = () => openMemberModal(null);
 document.getElementById("addTaskBtn").onclick = () => openTaskModal(null);
+document.getElementById("saveBaselineBtn").onclick = saveBaseline;
+document.getElementById("baselineToggle").onclick = () => { if (!data.baseline) return; ui.showBaseline = !ui.showBaseline; render(); };
 document.getElementById("exportBtn").onclick = exportData;
 document.getElementById("importBtn").onclick = () => document.getElementById("importFile").click();
 document.getElementById("importFile").onchange = (e) => { if (e.target.files[0]) { importData(e.target.files[0]); e.target.value = ""; } };
