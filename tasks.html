@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>タスク見える君</title>
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --panel: #ffffff;
+    --border: #e2e6ec;
+    --text: #1f2733;
+    --text-sub: #6b7686;
+    --accent: #2f6fed;
+    --accent-weak: #e8f0fe;
+    --ok: #2faa6a;
+    --warn-high: #e5484d;
+    --warn-high-weak: #fdecec;
+    --warn-low: #d99016;
+    --warn-low-weak: #fdf4e3;
+    --over: #c2303a;
+    --radius: 8px;
+    --shadow: 0 1px 3px rgba(20,30,50,.08), 0 1px 2px rgba(20,30,50,.04);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", "Noto Sans JP", Meiryo, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  header.app {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+  header.app h1 { font-size: 16px; margin: 0 8px 0 0; white-space: nowrap; }
+  header.app .spacer { flex: 1 1 auto; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .seg button { border: none; background: var(--panel); padding: 6px 12px; cursor: pointer; font-size: 13px; color: var(--text-sub); }
+  .seg button.active { background: var(--accent); color: #fff; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  select, input, button, textarea { font-family: inherit; font-size: 13px; }
+  .btn {
+    border: 1px solid var(--border); background: var(--panel); color: var(--text);
+    padding: 6px 12px; border-radius: var(--radius); cursor: pointer;
+  }
+  .btn:hover { background: #f0f3f8; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.05); }
+  .btn.danger { color: var(--warn-high); border-color: #f3c6c8; }
+  .btn.small { padding: 3px 8px; font-size: 12px; }
+  label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-sub); }
+  label.field > input, label.field > select, label.field > textarea {
+    padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: #fff;
+  }
+  main { padding: 16px; max-width: 1200px; margin: 0 auto; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; margin-bottom: 16px; }
+  .panel h2 { font-size: 14px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .panel h2 .hint { font-weight: 400; color: var(--text-sub); font-size: 12px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+
+  /* member cards */
+  .member-card { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; background: #fff; }
+  .member-card .swatch { width: 14px; height: 14px; border-radius: 4px; flex: none; }
+  .member-card .name { font-weight: 600; min-width: 100px; }
+  .member-card .meter-wrap { flex: 1 1 220px; min-width: 180px; }
+  .meter { position: relative; height: 18px; background: #eef1f5; border-radius: 9px; overflow: hidden; }
+  .meter .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 9px; }
+  .meter .line100 { position: absolute; top: -2px; bottom: -2px; width: 2px; background: rgba(20,30,50,.45); }
+  .meter .peak-marker { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #1f2733; }
+  .meter .peak-marker::before { content: ""; position: absolute; top: -4px; left: -2px; border-left: 3px solid transparent; border-right: 3px solid transparent; border-top: 4px solid #1f2733; }
+  .meter-label { font-size: 12px; color: var(--text-sub); margin-top: 2px; display: flex; justify-content: space-between; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; font-weight: 600; }
+  .badge.ok { background: #e7f6ee; color: var(--ok); }
+  .badge.high { background: var(--warn-high-weak); color: var(--warn-high); }
+  .badge.low { background: var(--warn-low-weak); color: var(--warn-low); }
+  .member-card .actions { display: flex; gap: 6px; }
+  .member-card.clickable { cursor: pointer; }
+  .member-card.clickable:hover { border-color: var(--accent); }
+
+  /* gantt */
+  .gantt-scroll { overflow-x: auto; }
+  table.gantt { border-collapse: collapse; table-layout: fixed; }
+  table.gantt th, table.gantt td { border: 1px solid var(--border); padding: 0; }
+  table.gantt th.daycol, table.gantt td.daycell { width: 44px; min-width: 44px; max-width: 44px; text-align: center; }
+  table.gantt th.daycol { overflow: hidden; }
+  table.gantt th.namecol, table.gantt td.namecell { position: sticky; left: 0; background: var(--panel); z-index: 2; width: 130px; min-width: 130px; padding: 6px 10px; text-align: left; }
+  table.gantt thead th { background: #f7f9fc; font-weight: 600; font-size: 11px; color: var(--text-sub); padding: 4px 2px; }
+  table.gantt th.today { background: var(--accent-weak); color: var(--accent); }
+  table.gantt td.today { box-shadow: inset 0 0 0 1px var(--accent); }
+  .gcell { position: relative; height: 26px; }
+  .gantt-row td.namecell { font-weight: 600; }
+  .task-track { position: relative; height: 22px; margin: 2px 0; }
+  .bar { position: absolute; top: 0; height: 20px; border-radius: 4px; color: #fff; font-size: 11px; line-height: 20px; padding: 0 6px; white-space: nowrap; overflow: hidden; cursor: pointer; box-shadow: var(--shadow); }
+  .bar.done { opacity: .5; text-decoration: line-through; }
+
+  /* chart */
+  .chart-wrap { overflow-x: auto; }
+  svg.linechart { display: block; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
+  .legend .item { display: flex; align-items: center; gap: 6px; }
+  .legend .dot { width: 12px; height: 4px; border-radius: 2px; }
+
+  /* task table */
+  table.tasks { width: 100%; border-collapse: collapse; }
+  table.tasks th, table.tasks td { border-bottom: 1px solid var(--border); padding: 8px 8px; text-align: left; vertical-align: middle; }
+  table.tasks th { font-size: 12px; color: var(--text-sub); font-weight: 600; }
+  table.tasks tr:hover td { background: #fafbfd; }
+  .status-pill { font-size: 11px; padding: 1px 7px; border-radius: 999px; }
+  .status-todo { background: #eef1f5; color: var(--text-sub); }
+  .status-in_progress { background: var(--accent-weak); color: var(--accent); }
+  .status-done { background: #e7f6ee; color: var(--ok); }
+  .load-cell { font-variant-numeric: tabular-nums; font-family: var(--mono); }
+  .over { color: var(--over); font-weight: 700; }
+
+  /* modal */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(20,30,50,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+  .modal { background: var(--panel); border-radius: 12px; box-shadow: 0 20px 50px rgba(20,30,50,.3); width: 100%; max-width: 460px; max-height: 90vh; overflow: auto; }
+  .modal header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .modal header h3 { margin: 0; font-size: 15px; }
+  .modal .body { padding: 16px; display: grid; gap: 12px; }
+  .modal .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .modal footer { display: flex; justify-content: space-between; gap: 8px; padding: 14px 16px; border-top: 1px solid var(--border); }
+  .icon-btn { border: none; background: none; cursor: pointer; font-size: 18px; color: var(--text-sub); line-height: 1; }
+  .err { color: var(--warn-high); font-size: 12px; min-height: 16px; }
+  .muted { color: var(--text-sub); }
+  .empty { text-align: center; color: var(--text-sub); padding: 24px; }
+  .note-cell { max-width: 220px; color: var(--text-sub); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header class="app">
+  <h1>タスク見える君</h1>
+  <div class="seg" id="viewSeg">
+    <button data-view="team" class="active">チーム</button>
+    <button data-view="personal">個人</button>
+  </div>
+  <select id="memberSelect" class="hidden" title="表示メンバー"></select>
+  <div class="seg" id="rangeSeg">
+    <button data-range="quarter" class="active">四半期</button>
+    <button data-range="half">半年</button>
+    <button data-range="year">1年</button>
+  </div>
+  <span class="spacer"></span>
+  <button class="btn small" id="prevBtn" title="前へ">◀</button>
+  <button class="btn small" id="todayBtn">今日</button>
+  <button class="btn small" id="nextBtn" title="次へ">▶</button>
+  <span class="spacer"></span>
+  <button class="btn" id="addMemberBtn">＋メンバー</button>
+  <button class="btn" id="addTaskBtn">＋タスク</button>
+  <button class="btn" id="exportBtn">エクスポート</button>
+  <button class="btn" id="importBtn">インポート</button>
+  <input type="file" id="importFile" accept="application/json" class="hidden">
+</header>
+
+<main id="main"></main>
+
+<div id="modalRoot"></div>
+
+<script>
+"use strict";
+
+/* ============ 永続化 ============ */
+const STORAGE_KEY = "task-tool-data-v1";
+
+const PALETTE = ["#2f6fed","#e5484d","#2faa6a","#d99016","#8b5cf6","#0ea5e9","#db2777","#65a30d","#0d9488","#f97316"];
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+function defaultData() {
+  return {
+    members: [],
+    tasks: [],
+    settings: {}
+  };
+}
+
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return seedData();
+    const d = JSON.parse(raw);
+    // 後方互換のための補完
+    d.members = Array.isArray(d.members) ? d.members : [];
+    d.tasks = Array.isArray(d.tasks) ? d.tasks : [];
+    d.settings = d.settings || {};
+    return d;
+  } catch (e) {
+    console.error("データ読み込みに失敗。初期データを使用します。", e);
+    return seedData();
+  }
+}
+
+function saveData() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.error("保存に失敗しました。", e);
+    alert("データの保存に失敗しました（localStorageが使用できない可能性があります）。");
+  }
+}
+
+/* 初回用のサンプルデータ */
+function seedData() {
+  const d = defaultData();
+  const m1 = { id: uid(), name: "佐藤", capacityWarnHigh: 80, capacityWarnLow: 60, color: PALETTE[0] };
+  const m2 = { id: uid(), name: "鈴木", capacityWarnHigh: 80, capacityWarnLow: 60, color: PALETTE[1] };
+  const m3 = { id: uid(), name: "田中", capacityWarnHigh: 80, capacityWarnLow: 60, color: PALETTE[2] };
+  d.members = [m1, m2, m3];
+  const base = mondayOf(todayStr());
+  const wk = (n) => addDaysStr(base, n * 7);            // n週後の月曜
+  const wkEnd = (n) => addDaysStr(base, n * 7 + 4);     // n週後の金曜（週内終了）
+  d.tasks = [
+    // 中長期計画のイメージ：継続タスク + 期間限定タスクが重なって負担が増減する
+    { id: uid(), memberId: m1.id, title: "新機能A 設計・実装", load: 50, startDate: wk(0), endDate: wkEnd(5), status: "in_progress", note: "" },
+    { id: uid(), memberId: m1.id, title: "保守・問い合わせ対応", load: 30, startDate: wk(0), endDate: wkEnd(11), status: "in_progress", note: "継続タスク" },
+    { id: uid(), memberId: m2.id, title: "プロジェクトX", load: 60, startDate: wk(1), endDate: wkEnd(7), status: "todo", note: "" },
+    { id: uid(), memberId: m2.id, title: "レビュー・相談対応", load: 30, startDate: wk(0), endDate: wkEnd(12), status: "in_progress", note: "" },
+    { id: uid(), memberId: m3.id, title: "資料作成", load: 40, startDate: wk(0), endDate: wkEnd(2), status: "in_progress", note: "" },
+    { id: uid(), memberId: m3.id, title: "研修・育成", load: 70, startDate: wk(4), endDate: wkEnd(6), status: "todo", note: "" },
+  ];
+  return d;
+}
+
+/* ============ 日付ユーティリティ ============ */
+function todayStr() { return toStr(new Date()); }
+function toStr(dt) {
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, "0");
+  const d = String(dt.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+function parseDate(s) {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+function addDaysStr(s, n) {
+  const dt = parseDate(s);
+  dt.setDate(dt.getDate() + n);
+  return toStr(dt);
+}
+function diffDays(a, b) { // b - a （日数）
+  return Math.round((parseDate(b) - parseDate(a)) / 86400000);
+}
+function isWeekend(s) { const d = parseDate(s).getDay(); return d === 0 || d === 6; }
+function fmtMD(s) { const dt = parseDate(s); return `${dt.getMonth() + 1}/${dt.getDate()}`; }
+const WD = ["日","月","火","水","木","金","土"];
+function weekday(s) { return WD[parseDate(s).getDay()]; }
+// その日が属する週の月曜日（YYYY-MM-DD）を返す
+function mondayOf(s) {
+  const dt = parseDate(s);
+  const day = dt.getDay(); // 0=日,1=月,...6=土
+  dt.setDate(dt.getDate() + (day === 0 ? -6 : 1 - day));
+  return toStr(dt);
+}
+
+/* ============ 負担計算 ============ */
+// 指定日にメンバーがアクティブに抱えるタスクの load 合計
+function dailyLoad(memberId, dateStr) {
+  let sum = 0;
+  for (const t of data.tasks) {
+    if (t.memberId !== memberId) continue;
+    if (dateStr >= t.startDate && dateStr <= t.endDate) sum += Number(t.load) || 0;
+  }
+  return sum;
+}
+
+// その週（月曜始まり）の平均日次負担。中長期の俯瞰用に週単位へ集約する。
+function weeklyLoad(memberId, mondayStr) {
+  let sum = 0;
+  for (let i = 0; i < 7; i++) sum += dailyLoad(memberId, addDaysStr(mondayStr, i));
+  return sum / 7;
+}
+
+// 警告判定対象期間 = 現在表示中の期間。その全週の平均負担を返す。
+function displayedAverage(memberId) {
+  const weeks = visibleWeeks();
+  if (!weeks.length) return 0;
+  let sum = 0;
+  for (const w of weeks) sum += weeklyLoad(memberId, w);
+  return sum / weeks.length;
+}
+
+// 表示中の期間で最も負担が高かった週の負荷（ピーク）。平均が隠す過負荷週の検知用。
+function displayedMax(memberId) {
+  let mx = 0;
+  for (const w of visibleWeeks()) mx = Math.max(mx, weeklyLoad(memberId, w));
+  return mx;
+}
+
+// 警告状態を返す: {level: 'ok'|'high'|'low', avg, text}
+function warningOf(member) {
+  const avg = displayedAverage(member.id);
+  let level = "ok", text = "適正範囲です";
+  if (avg > member.capacityWarnHigh) { level = "high"; text = "過負荷の可能性。状況を確認しましょう"; }
+  else if (avg < member.capacityWarnLow) { level = "low"; text = "余力がありそう。状況を確認しましょう"; }
+  return { level, avg, text };
+}
+
+/* ============ アプリ状態 ============ */
+let data = loadData();
+
+// 表示期間（週数）。中長期の俯瞰が目的のため週単位で扱う。
+const RANGES = {
+  quarter: { weeks: 13, label: "四半期" },
+  half:    { weeks: 26, label: "半年" },
+  year:    { weeks: 52, label: "1年" },
+};
+
+const ui = {
+  view: "team",                 // team | personal
+  range: "quarter",             // quarter | half | year
+  anchor: mondayOf(todayStr()), // 表示期間の基準（週の月曜）
+  selectedMemberId: null,
+};
+
+function weeksCount() { return (RANGES[ui.range] || RANGES.quarter).weeks; }
+
+// 表示する週（各週の月曜日）の配列を返す
+function visibleWeeks() {
+  const start = mondayOf(ui.anchor);
+  const out = [];
+  for (let i = 0; i < weeksCount(); i++) out.push(addDaysStr(start, i * 7));
+  return out;
+}
+
+function memberById(id) { return data.members.find(m => m.id === id) || null; }
+function tasksOf(id) { return data.tasks.filter(t => t.memberId === id); }
+
+/* ============ レンダリング ============ */
+const main = document.getElementById("main");
+
+function render() {
+  // ヘッダーの状態同期
+  document.querySelectorAll("#viewSeg button").forEach(b => b.classList.toggle("active", b.dataset.view === ui.view));
+  document.querySelectorAll("#rangeSeg button").forEach(b => b.classList.toggle("active", b.dataset.range === ui.range));
+  const memSel = document.getElementById("memberSelect");
+  memSel.classList.toggle("hidden", ui.view !== "personal");
+  syncMemberSelect();
+
+  saveData();
+
+  if (data.members.length === 0) {
+    main.innerHTML = `<div class="panel"><div class="empty">メンバーがいません。右上の「＋メンバー」から追加してください。</div></div>`;
+    return;
+  }
+
+  if (ui.view === "team") renderTeam();
+  else renderPersonal();
+}
+
+function syncMemberSelect() {
+  const sel = document.getElementById("memberSelect");
+  sel.innerHTML = data.members.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join("");
+  if (!ui.selectedMemberId || !memberById(ui.selectedMemberId)) {
+    ui.selectedMemberId = data.members[0] ? data.members[0].id : null;
+  }
+  if (ui.selectedMemberId) sel.value = ui.selectedMemberId;
+}
+
+function rangeLabel() {
+  const ws = visibleWeeks();
+  return `${fmtMD(ws[0])} 〜 ${fmtMD(addDaysStr(ws[ws.length - 1], 6))}`;
+}
+
+/* ---- チームビュー ---- */
+function renderTeam() {
+  main.innerHTML = "";
+  main.appendChild(memberListPanel());
+  main.appendChild(ganttPanel(data.members));
+  main.appendChild(chartPanel(data.members));
+}
+
+function memberListPanel() {
+  const panel = el(`<div class="panel"><h2>メンバー一覧 <span class="hint">期間平均負担（表示期間 ${rangeLabel()}）と警告</span></h2><div id="memberList"></div></div>`);
+  const list = panel.querySelector("#memberList");
+  for (const m of data.members) {
+    const w = warningOf(m);
+    const card = el(`<div class="member-card clickable"></div>`);
+    card.appendChild(el(`<span class="swatch" style="background:${m.color}"></span>`));
+    card.appendChild(el(`<span class="name">${esc(m.name)}</span>`));
+
+    const mx = displayedMax(m.id);
+    const meterWrap = el(`<div class="meter-wrap"></div>`);
+    meterWrap.appendChild(meterEl(w.avg, m, mx));
+    meterWrap.appendChild(el(`<div class="meter-label"><span>平均 ${w.avg.toFixed(0)}% / 最大 <span class="${mx > m.capacityWarnHigh ? "over" : ""}">${mx.toFixed(0)}%</span></span><span class="muted">上限${m.capacityWarnHigh} / 下限${m.capacityWarnLow}</span></div>`));
+    card.appendChild(meterWrap);
+
+    card.appendChild(el(`<span class="badge ${w.level}">${w.level === "ok" ? "適正" : w.level === "high" ? "過負荷" : "低負荷"}</span>`));
+
+    const actions = el(`<span class="actions"></span>`);
+    const editB = el(`<button class="btn small">編集</button>`);
+    editB.onclick = (e) => { e.stopPropagation(); openMemberModal(m); };
+    actions.appendChild(editB);
+    card.appendChild(actions);
+
+    card.title = w.text;
+    card.onclick = () => { ui.view = "personal"; ui.selectedMemberId = m.id; render(); };
+    list.appendChild(card);
+  }
+  return panel;
+}
+
+function meterEl(avg, m, max) {
+  const meter = el(`<div class="meter"></div>`);
+  const pct = Math.min(100, avg); // バー幅は100基準で表示（100超は色で強調）
+  let color = "var(--ok)";
+  if (avg > m.capacityWarnHigh) color = "var(--warn-high)";
+  else if (avg < m.capacityWarnLow) color = "var(--warn-low)";
+  const fill = el(`<div class="fill" style="width:${pct}%;background:${color}"></div>`);
+  meter.appendChild(fill);
+  if (avg > 100) {
+    // 100超は赤の強調オーバーレイ
+    meter.appendChild(el(`<div class="fill" style="width:100%;background:repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(194,48,58,.35) 4px, rgba(194,48,58,.35) 8px)"></div>`));
+  }
+  meter.appendChild(el(`<div class="line100" style="left:100%"></div>`));
+  // ピーク（最大週）マーカー
+  if (typeof max === "number" && max > 0) {
+    const mk = el(`<div class="peak-marker" style="left:${Math.min(100, max)}%"></div>`);
+    mk.title = `最大 ${max.toFixed(0)}%`;
+    meter.appendChild(mk);
+  }
+  return meter;
+}
+
+/* ---- ガント風チャート ---- */
+function ganttPanel(members) {
+  const weeks = visibleWeeks();
+  const colW = 44;
+  const curWeek = mondayOf(todayStr());
+  const firstMon = weeks[0];
+  const lastSun = addDaysStr(weeks[weeks.length - 1], 6);
+  const panel = el(`<div class="panel"><h2>負担 × 期間 <span class="hint">${rangeLabel()}（1列=1週・バーの色 = 負担の重さ）</span></h2></div>`);
+  const scroll = el(`<div class="gantt-scroll"></div>`);
+  const table = el(`<table class="gantt"></table>`);
+
+  // ヘッダー（各週の月曜日付）
+  const thead = el(`<thead></thead>`);
+  const hr = el(`<tr></tr>`);
+  hr.appendChild(el(`<th class="namecol">メンバー</th>`));
+  for (const w of weeks) {
+    const cls = "daycol" + (w === curWeek ? " today" : "");
+    hr.appendChild(el(`<th class="${cls}">${fmtMD(w)}</th>`));
+  }
+  thead.appendChild(hr);
+  table.appendChild(thead);
+
+  const tbody = el(`<tbody></tbody>`);
+  for (const m of members) {
+    const myTasks = tasksOf(m.id).filter(t => !(t.endDate < firstMon || t.startDate > lastSun));
+    const rowCount = Math.max(1, myTasks.length);
+    for (let i = 0; i < rowCount; i++) {
+      const tr = el(`<tr class="gantt-row"></tr>`);
+      if (i === 0) {
+        const nameCell = el(`<td class="namecell" rowspan="${rowCount}"><span class="swatch" style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${m.color};margin-right:6px"></span>${esc(m.name)}</td>`);
+        tr.appendChild(nameCell);
+      }
+      for (let wi = 0; wi < weeks.length; wi++) {
+        const cls = "daycell" + (weeks[wi] === curWeek ? " today" : "");
+        const td = el(`<td class="${cls}"></td>`);
+        td.appendChild(el(`<div class="gcell"></div>`));
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+    // バーを描画（行ごとに1タスク。開始週〜終了週でスパン）
+    if (myTasks.length) {
+      const rows = Array.from(tbody.querySelectorAll("tr")).slice(-rowCount);
+      myTasks.forEach((t, idx) => {
+        const row = rows[idx];
+        const cells = row.querySelectorAll("td.daycell .gcell");
+        const sIdx = Math.max(0, Math.round(diffDays(firstMon, mondayOf(t.startDate)) / 7));
+        const eIdx = Math.min(weeks.length - 1, Math.round(diffDays(firstMon, mondayOf(t.endDate)) / 7));
+        if (sIdx > weeks.length - 1 || eIdx < 0) return;
+        const span = eIdx - sIdx + 1;
+        const bar = el(`<div class="bar ${t.status === "done" ? "done" : ""}" style="left:0;width:calc(${span} * ${colW}px - 4px);background:${loadColor(t.load)}">${esc(t.title)} (${t.load})</div>`);
+        bar.title = `${esc(t.title)} / 負担${t.load} / ${t.startDate}〜${t.endDate}`;
+        bar.onclick = () => openTaskModal(t);
+        const startCell = cells[sIdx];
+        if (startCell) startCell.appendChild(bar);
+      });
+    }
+  }
+  table.appendChild(tbody);
+  scroll.appendChild(table);
+  panel.appendChild(scroll);
+  return panel;
+}
+
+// 負担に応じた色（軽い→濃い）
+function loadColor(load) {
+  const l = Number(load) || 0;
+  if (l > 100) return "var(--over)";
+  if (l >= 70) return "#e5484d";
+  if (l >= 40) return "#d99016";
+  if (l >= 20) return "#2f6fed";
+  return "#7aa2f0";
+}
+
+/* ---- 負担推移 折れ線グラフ ---- */
+function chartPanel(members) {
+  const weeks = visibleWeeks();
+  const panel = el(`<div class="panel"><h2>負担推移 <span class="hint">週ごとの平均負担（100=キャパシティ）</span></h2></div>`);
+  const wrap = el(`<div class="chart-wrap"></div>`);
+
+  const padL = 36, padR = 14, padT = 12, padB = 28;
+  const stepX = 30;
+  const plotW = Math.max(1, weeks.length - 1) * stepX;
+  const W = padL + plotW + padR;
+  const plotH = 180;
+  const H = padT + plotH + padB;
+
+  // y最大値（100超に対応）
+  let maxLoad = 100;
+  for (const m of members) for (const w of weeks) maxLoad = Math.max(maxLoad, weeklyLoad(m.id, w));
+  const yMax = Math.ceil(maxLoad / 50) * 50;
+  const x = (i) => padL + i * stepX;
+  const y = (v) => padT + plotH - (v / yMax) * plotH;
+  const curWeek = mondayOf(todayStr());
+
+  let svg = `<svg class="linechart" viewBox="0 0 ${Math.max(W, 320)} ${H}" width="${Math.max(W, 320)}" height="${H}">`;
+  // y軸グリッド
+  for (let v = 0; v <= yMax; v += 50) {
+    svg += `<line x1="${padL}" y1="${y(v)}" x2="${padL + plotW}" y2="${y(v)}" stroke="#e2e6ec" />`;
+    svg += `<text x="${padL - 6}" y="${y(v) + 3}" text-anchor="end" font-size="10" fill="#6b7686">${v}</text>`;
+  }
+  // 現在週マーカー
+  const cwIdx = weeks.indexOf(curWeek);
+  if (cwIdx >= 0) svg += `<line x1="${x(cwIdx)}" y1="${padT}" x2="${x(cwIdx)}" y2="${padT + plotH}" stroke="var(--accent)" stroke-width="1" stroke-dasharray="2 2" opacity="0.5" />`;
+  // 100ライン（基準）
+  svg += `<line x1="${padL}" y1="${y(100)}" x2="${padL + plotW}" y2="${y(100)}" stroke="#1f2733" stroke-width="1.5" stroke-dasharray="4 3" />`;
+  svg += `<text x="${padL + plotW}" y="${y(100) - 4}" text-anchor="end" font-size="10" fill="#1f2733">100</text>`;
+  // x軸ラベル（混雑回避のため間引く）
+  const labelEvery = Math.ceil(weeks.length / 13);
+  weeks.forEach((w, i) => {
+    if (i % labelEvery !== 0) return;
+    svg += `<text x="${x(i)}" y="${padT + plotH + 14}" text-anchor="middle" font-size="9" fill="#6b7686">${fmtMD(w)}</text>`;
+  });
+  // 各メンバーの折れ線
+  for (const m of members) {
+    const pts = weeks.map((w, i) => `${x(i)},${y(weeklyLoad(m.id, w))}`);
+    svg += `<polyline fill="none" stroke="${m.color}" stroke-width="2" points="${pts.join(" ")}" />`;
+    // 100超の週を強調
+    weeks.forEach((w, i) => {
+      const v = weeklyLoad(m.id, w);
+      if (v > 100) svg += `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="var(--over)" stroke="#fff" stroke-width="1" />`;
+    });
+  }
+  svg += `</svg>`;
+  wrap.innerHTML = svg;
+  panel.appendChild(wrap);
+
+  // 凡例
+  const legend = el(`<div class="legend"></div>`);
+  for (const m of members) {
+    legend.appendChild(el(`<span class="item"><span class="dot" style="background:${m.color}"></span>${esc(m.name)}</span>`));
+  }
+  panel.appendChild(legend);
+  return panel;
+}
+
+/* ---- 個人ビュー ---- */
+function renderPersonal() {
+  const m = memberById(ui.selectedMemberId);
+  if (!m) { main.innerHTML = `<div class="panel"><div class="empty">メンバーを選択してください。</div></div>`; return; }
+  main.innerHTML = "";
+
+  const w = warningOf(m);
+  const head = el(`<div class="panel"></div>`);
+  head.appendChild(el(`<h2><span class="swatch" style="display:inline-block;width:14px;height:14px;border-radius:4px;background:${m.color}"></span> ${esc(m.name)} <span class="badge ${w.level}">${w.level === "ok" ? "適正" : w.level === "high" ? "過負荷" : "低負荷"}</span></h2>`));
+  const mx = displayedMax(m.id);
+  const meterWrap = el(`<div class="meter-wrap" style="max-width:420px"></div>`);
+  meterWrap.appendChild(meterEl(w.avg, m, mx));
+  meterWrap.appendChild(el(`<div class="meter-label"><span>期間平均 ${w.avg.toFixed(0)}% / 最大 <span class="${mx > m.capacityWarnHigh ? "over" : ""}">${mx.toFixed(0)}%</span></span><span class="muted">${esc(w.text)}</span></div>`));
+  head.appendChild(meterWrap);
+  main.appendChild(head);
+
+  // タスク一覧
+  const panel = el(`<div class="panel"></div>`);
+  panel.appendChild(el(`<h2>タスク一覧 <span class="hint">${esc(m.name)} さんのタスク</span></h2>`));
+  const myTasks = tasksOf(m.id).slice().sort((a, b) => a.startDate.localeCompare(b.startDate));
+  if (myTasks.length === 0) {
+    panel.appendChild(el(`<div class="empty">タスクがありません。「＋タスク」から追加してください。</div>`));
+  } else {
+    const table = el(`<table class="tasks"><thead><tr><th>タスク</th><th>負担</th><th>期間</th><th>状態</th><th>メモ</th><th></th></tr></thead><tbody></tbody></table>`);
+    const tb = table.querySelector("tbody");
+    for (const t of myTasks) {
+      const tr = el(`<tr></tr>`);
+      tr.appendChild(el(`<td>${esc(t.title)}</td>`));
+      const over = Number(t.load) > 100 ? " over" : "";
+      tr.appendChild(el(`<td class="load-cell${over}">${t.load}</td>`));
+      tr.appendChild(el(`<td class="muted">${fmtMD(t.startDate)}〜${fmtMD(t.endDate)}</td>`));
+      tr.appendChild(el(`<td><span class="status-pill status-${t.status}">${statusLabel(t.status)}</span></td>`));
+      tr.appendChild(el(`<td class="note-cell" title="${esc(t.note || "")}">${esc(t.note || "")}</td>`));
+      const act = el(`<td></td>`);
+      const eb = el(`<button class="btn small">編集</button>`);
+      eb.onclick = () => openTaskModal(t);
+      act.appendChild(eb);
+      tr.appendChild(act);
+      tb.appendChild(tr);
+    }
+    panel.appendChild(table);
+  }
+  main.appendChild(panel);
+
+  // 個人の負担推移
+  main.appendChild(chartPanel([m]));
+}
+
+function statusLabel(s) { return s === "todo" ? "未着手" : s === "in_progress" ? "進行中" : s === "done" ? "完了" : s; }
+
+/* ============ モーダル ============ */
+const modalRoot = document.getElementById("modalRoot");
+function closeModal() { modalRoot.innerHTML = ""; }
+
+function openMemberModal(member) {
+  const isNew = !member;
+  const m = member || { id: uid(), name: "", capacityWarnHigh: 80, capacityWarnLow: 60, color: PALETTE[data.members.length % PALETTE.length] };
+  const back = el(`<div class="modal-backdrop"></div>`);
+  back.innerHTML = `
+    <div class="modal">
+      <header><h3>${isNew ? "メンバー追加" : "メンバー編集"}</h3><button class="icon-btn" data-close>×</button></header>
+      <div class="body">
+        <label class="field">名前<input id="m_name" value="${esc(m.name)}" placeholder="例：山田"></label>
+        <div class="grid2">
+          <label class="field">上限警告閾値<input id="m_high" type="number" value="${m.capacityWarnHigh}"></label>
+          <label class="field">下限警告閾値<input id="m_low" type="number" value="${m.capacityWarnLow}"></label>
+        </div>
+        <label class="field">表示色<input id="m_color" type="color" value="${m.color}"></label>
+        <div class="err" id="m_err"></div>
+      </div>
+      <footer>
+        <div>${isNew ? "" : '<button class="btn danger" data-del>削除</button>'}</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" data-close>キャンセル</button>
+          <button class="btn primary" data-save>保存</button>
+        </div>
+      </footer>
+    </div>`;
+  modalRoot.appendChild(back);
+  back.addEventListener("click", (e) => { if (e.target === back) closeModal(); });
+  back.querySelectorAll("[data-close]").forEach(b => b.onclick = closeModal);
+
+  const err = back.querySelector("#m_err");
+  back.querySelector("[data-save]").onclick = () => {
+    const name = back.querySelector("#m_name").value.trim();
+    const high = Number(back.querySelector("#m_high").value);
+    const low = Number(back.querySelector("#m_low").value);
+    if (!name) { err.textContent = "名前を入力してください。"; return; }
+    if (!(high > low)) { err.textContent = "上限閾値は下限閾値より大きくしてください。"; return; }
+    m.name = name; m.capacityWarnHigh = high; m.capacityWarnLow = low; m.color = back.querySelector("#m_color").value;
+    if (isNew) data.members.push(m);
+    closeModal(); render();
+  };
+  const delB = back.querySelector("[data-del]");
+  if (delB) delB.onclick = () => {
+    const cnt = tasksOf(m.id).length;
+    if (!confirm(`「${m.name}」を削除します。${cnt > 0 ? `関連タスク ${cnt} 件も削除されます。` : ""}よろしいですか？`)) return;
+    data.members = data.members.filter(x => x.id !== m.id);
+    data.tasks = data.tasks.filter(t => t.memberId !== m.id);
+    if (ui.selectedMemberId === m.id) ui.selectedMemberId = data.members[0] ? data.members[0].id : null;
+    closeModal(); render();
+  };
+}
+
+function openTaskModal(task) {
+  if (data.members.length === 0) { alert("先にメンバーを追加してください。"); return; }
+  const isNew = !task;
+  const defMember = ui.view === "personal" && ui.selectedMemberId ? ui.selectedMemberId : data.members[0].id;
+  const t = task || { id: uid(), memberId: defMember, title: "", load: 30, startDate: todayStr(), endDate: todayStr(), status: "todo", note: "" };
+  const back = el(`<div class="modal-backdrop"></div>`);
+  const memOpts = data.members.map(m => `<option value="${m.id}" ${m.id === t.memberId ? "selected" : ""}>${esc(m.name)}</option>`).join("");
+  const statusOpts = [["todo","未着手"],["in_progress","進行中"],["done","完了"]].map(([v,l]) => `<option value="${v}" ${v === t.status ? "selected" : ""}>${l}</option>`).join("");
+  back.innerHTML = `
+    <div class="modal">
+      <header><h3>${isNew ? "タスク追加" : "タスク編集"}</h3><button class="icon-btn" data-close>×</button></header>
+      <div class="body">
+        <label class="field">タイトル<input id="t_title" value="${esc(t.title)}" placeholder="例：設計レビュー"></label>
+        <div class="grid2">
+          <label class="field">担当<select id="t_member">${memOpts}</select></label>
+          <label class="field">負担（%・100超可）<input id="t_load" type="number" value="${t.load}"></label>
+        </div>
+        <div class="grid2">
+          <label class="field">開始日<input id="t_start" type="date" value="${t.startDate}"></label>
+          <label class="field">終了日<input id="t_end" type="date" value="${t.endDate}"></label>
+        </div>
+        <label class="field">状態<select id="t_status">${statusOpts}</select></label>
+        <label class="field">メモ<textarea id="t_note" rows="2">${esc(t.note || "")}</textarea></label>
+        <div class="err" id="t_err"></div>
+      </div>
+      <footer>
+        <div>${isNew ? "" : '<button class="btn danger" data-del>削除</button>'}</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" data-close>キャンセル</button>
+          <button class="btn primary" data-save>保存</button>
+        </div>
+      </footer>
+    </div>`;
+  modalRoot.appendChild(back);
+  back.addEventListener("click", (e) => { if (e.target === back) closeModal(); });
+  back.querySelectorAll("[data-close]").forEach(b => b.onclick = closeModal);
+
+  const err = back.querySelector("#t_err");
+  back.querySelector("[data-save]").onclick = () => {
+    const title = back.querySelector("#t_title").value.trim();
+    const load = Number(back.querySelector("#t_load").value);
+    const start = back.querySelector("#t_start").value;
+    const end = back.querySelector("#t_end").value;
+    if (!title) { err.textContent = "タイトルを入力してください。"; return; }
+    if (!start || !end) { err.textContent = "開始日・終了日を入力してください。"; return; }
+    if (end < start) { err.textContent = "終了日は開始日以降にしてください。"; return; }
+    if (!(load >= 0)) { err.textContent = "負担は0以上で入力してください。"; return; }
+    t.title = title; t.memberId = back.querySelector("#t_member").value; t.load = load;
+    t.startDate = start; t.endDate = end; t.status = back.querySelector("#t_status").value;
+    t.note = back.querySelector("#t_note").value.trim();
+    if (isNew) data.tasks.push(t);
+    closeModal(); render();
+  };
+  const delB = back.querySelector("[data-del]");
+  if (delB) delB.onclick = () => {
+    if (!confirm(`タスク「${t.title}」を削除します。よろしいですか？`)) return;
+    data.tasks = data.tasks.filter(x => x.id !== t.id);
+    closeModal(); render();
+  };
+}
+
+/* ============ エクスポート / インポート ============ */
+function exportData() {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `task-mieru-kun_${todayStr()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importData(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const obj = JSON.parse(reader.result);
+      if (!obj || !Array.isArray(obj.members) || !Array.isArray(obj.tasks)) throw new Error("形式が不正です");
+      if (!confirm("現在のデータをインポート内容で置き換えます。よろしいですか？")) return;
+      data = {
+        members: obj.members,
+        tasks: obj.tasks,
+        settings: obj.settings || {}
+      };
+      ui.selectedMemberId = data.members[0] ? data.members[0].id : null;
+      render();
+      alert("インポートが完了しました。");
+    } catch (e) {
+      alert("インポートに失敗しました：" + e.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+/* ============ 補助 ============ */
+function el(html) { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; }
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+/* ============ イベント配線 ============ */
+document.querySelectorAll("#viewSeg button").forEach(b => b.onclick = () => { ui.view = b.dataset.view; render(); });
+document.querySelectorAll("#rangeSeg button").forEach(b => b.onclick = () => { ui.range = b.dataset.range; render(); });
+document.getElementById("memberSelect").onchange = (e) => { ui.selectedMemberId = e.target.value; render(); };
+document.getElementById("prevBtn").onclick = () => { ui.anchor = addDaysStr(mondayOf(ui.anchor), -weeksCount() * 7); render(); };
+document.getElementById("nextBtn").onclick = () => { ui.anchor = addDaysStr(mondayOf(ui.anchor), weeksCount() * 7); render(); };
+document.getElementById("todayBtn").onclick = () => { ui.anchor = mondayOf(todayStr()); render(); };
+document.getElementById("addMemberBtn").onclick = () => openMemberModal(null);
+document.getElementById("addTaskBtn").onclick = () => openTaskModal(null);
+document.getElementById("exportBtn").onclick = exportData;
+document.getElementById("importBtn").onclick = () => document.getElementById("importFile").click();
+document.getElementById("importFile").onchange = (e) => { if (e.target.files[0]) { importData(e.target.files[0]); e.target.value = ""; } };
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+/* 起動 */
+render();
+</script>
+</body>
+</html>
