@@ -28,7 +28,7 @@
 - `<style>` — 全UIのCSS（CSS変数でテーマ管理）
 - `<script>` — 状態は単一オブジェクト `data` に保持し localStorage へ保存する
   - `data.members[]` … メンバー（`{id, name, capacityWarnHigh, capacityWarnLow, color}`、警告閾値デフォルトは上限80/下限60）
-  - `data.tasks[]` … タスク（`{id, memberId, title, load, startDate, endDate, status, note}`）
+  - `data.tasks[]` … タスク（`{id, memberId, title, load, startDate, endDate, status, completedDate, note}`。`completedDate` は `done` のとき有効）
   - `data.baseline` … 計画スナップショット（`{savedAt, tasks:[...]}` または `null`）。「予定 vs 実績」可視化用に単一・手動保存（上書き）。
 
 ### 負担モデル
@@ -36,6 +36,7 @@
 - キャパシティ比率モデル。`load` は「そのメンバーのキャパシティ（基準100）の何%を占めるか」。
 - タスクの負担は期間（`startDate`〜`endDate`）の各日に**均等**にかかるものとして扱う。
 - ある日の**日次負担 = その日にアクティブなタスクの `load` 合計**。
+- **実効終了日** = `done` かつ `completedDate` があれば `completedDate`、それ以外は `endDate`。負担はこの実効終了日まで計上する（完了タスクの実態反映。早期完了で負担が減り、延長で増える）。
 - 合計が 100 を超えても**クランプせず**、超過を強調表示する（オーバーの可視化が目的）。
 - 期間内に重い/軽い区間がある場合は、使用者がタスクを分割して入力する運用。
 
