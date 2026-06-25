@@ -237,7 +237,7 @@ function seedData() {
     { id: uid(), memberId: m1.id, title: "保守・問い合わせ対応", load: 30, startDate: wk(0), endDate: wkEnd(11), status: "in_progress", note: "継続タスク" },
     { id: uid(), memberId: m2.id, title: "プロジェクトX", load: 60, startDate: wk(1), endDate: wkEnd(7), status: "todo", note: "" },
     { id: uid(), memberId: m2.id, title: "レビュー・相談対応", load: 30, startDate: wk(0), endDate: wkEnd(12), status: "in_progress", note: "" },
-    { id: uid(), memberId: m3.id, title: "資料作成", load: 40, startDate: wk(0), endDate: wkEnd(2), status: "in_progress", note: "" },
+    { id: uid(), memberId: m3.id, title: "資料作成", load: 40, startDate: wk(0), endDate: wkEnd(2), status: "done", completedDate: wkEnd(0), note: "予定より早く完了" },
     { id: uid(), memberId: m3.id, title: "研修・育成", load: 70, startDate: wk(4), endDate: wkEnd(6), status: "todo", note: "" },
   ];
   return d;
@@ -276,6 +276,12 @@ function mondayOf(s) {
 }
 
 /* ============ 負担計算 ============ */
+// タスクの実効終了日。完了(done)タスクは完了日が予定終了日を置き換える（実態反映）。
+// 完了日が無い done（旧データ）は後方互換で endDate を用いる。
+function effectiveEnd(t) {
+  return (t.status === "done" && t.completedDate) ? t.completedDate : t.endDate;
+}
+
 // 指定日にメンバーがアクティブに抱えるタスクの load 合計。
 // tasks を省略すると現在のデータ、計画線の描画時は baseline のタスク配列を渡す。
 function dailyLoad(memberId, dateStr, tasks) {
@@ -283,7 +289,7 @@ function dailyLoad(memberId, dateStr, tasks) {
   let sum = 0;
   for (const t of src) {
     if (t.memberId !== memberId) continue;
-    if (dateStr >= t.startDate && dateStr <= t.endDate) sum += Number(t.load) || 0;
+    if (dateStr >= t.startDate && dateStr <= effectiveEnd(t)) sum += Number(t.load) || 0;
   }
   return sum;
 }
@@ -502,7 +508,7 @@ function ganttPanel(members) {
 
   const tbody = el(`<tbody></tbody>`);
   for (const m of members) {
-    const myTasks = tasksOf(m.id).filter(t => !(t.endDate < firstMon || t.startDate > lastSun));
+    const myTasks = tasksOf(m.id).filter(t => !(effectiveEnd(t) < firstMon || t.startDate > lastSun));
     const rowCount = Math.max(1, myTasks.length);
     for (let i = 0; i < rowCount; i++) {
       const tr = el(`<tr class="gantt-row"></tr>`);
@@ -524,12 +530,13 @@ function ganttPanel(members) {
       myTasks.forEach((t, idx) => {
         const row = rows[idx];
         const cells = row.querySelectorAll("td.daycell .gcell");
+        const eEnd = effectiveEnd(t);
         const sIdx = Math.max(0, Math.round(diffDays(firstMon, mondayOf(t.startDate)) / 7));
-        const eIdx = Math.min(weeks.length - 1, Math.round(diffDays(firstMon, mondayOf(t.endDate)) / 7));
+        const eIdx = Math.min(weeks.length - 1, Math.round(diffDays(firstMon, mondayOf(eEnd)) / 7));
         if (sIdx > weeks.length - 1 || eIdx < 0) return;
         const span = eIdx - sIdx + 1;
         const bar = el(`<div class="bar ${t.status === "done" ? "done" : ""}" style="left:0;width:calc(${span} * ${colW}px - 4px);background:${loadColor(t.load)}">${esc(t.title)} (${t.load})</div>`);
-        bar.title = `${esc(t.title)} / 負担${t.load} / ${t.startDate}〜${t.endDate}`;
+        bar.title = `${esc(t.title)} / 負担${t.load} / ${t.startDate}〜${eEnd}${t.status === "done" ? "（完了）" : ""}`;
         bar.onclick = () => openTaskModal(t);
         const startCell = cells[sIdx];
         if (startCell) startCell.appendChild(bar);
@@ -661,7 +668,10 @@ function renderPersonal() {
       tr.appendChild(el(`<td>${esc(t.title)}</td>`));
       const over = Number(t.load) > 100 ? " over" : "";
       tr.appendChild(el(`<td class="load-cell${over}">${t.load}</td>`));
-      tr.appendChild(el(`<td class="muted">${fmtMD(t.startDate)}〜${fmtMD(t.endDate)}</td>`));
+      const periodTxt = (t.status === "done" && t.completedDate)
+        ? `${fmtMD(t.startDate)}〜${fmtMD(t.completedDate)} <span class="muted">完了</span>`
+        : `${fmtMD(t.startDate)}〜${fmtMD(t.endDate)}`;
+      tr.appendChild(el(`<td class="muted">${periodTxt}</td>`));
       tr.appendChild(el(`<td><span class="status-pill status-${t.status}">${statusLabel(t.status)}</span></td>`));
       tr.appendChild(el(`<td class="note-cell" title="${esc(t.note || "")}">${esc(t.note || "")}</td>`));
       const act = el(`<td></td>`);
@@ -739,7 +749,7 @@ function openTaskModal(task) {
   if (data.members.length === 0) { alert("先にメンバーを追加してください。"); return; }
   const isNew = !task;
   const defMember = ui.view === "personal" && ui.selectedMemberId ? ui.selectedMemberId : data.members[0].id;
-  const t = task || { id: uid(), memberId: defMember, title: "", load: 30, startDate: todayStr(), endDate: todayStr(), status: "todo", note: "" };
+  const t = task || { id: uid(), memberId: defMember, title: "", load: 30, startDate: todayStr(), endDate: todayStr(), status: "todo", note: "", completedDate: "" };
   const back = el(`<div class="modal-backdrop"></div>`);
   const memOpts = data.members.map(m => `<option value="${m.id}" ${m.id === t.memberId ? "selected" : ""}>${esc(m.name)}</option>`).join("");
   const statusOpts = [["todo","未着手"],["in_progress","進行中"],["done","完了"]].map(([v,l]) => `<option value="${v}" ${v === t.status ? "selected" : ""}>${l}</option>`).join("");
@@ -756,7 +766,10 @@ function openTaskModal(task) {
           <label class="field">開始日<input id="t_start" type="date" value="${t.startDate}"></label>
           <label class="field">終了日<input id="t_end" type="date" value="${t.endDate}"></label>
         </div>
-        <label class="field">状態<select id="t_status">${statusOpts}</select></label>
+        <div class="grid2">
+          <label class="field">状態<select id="t_status">${statusOpts}</select></label>
+          <label class="field" id="t_completed_wrap">完了日<input id="t_completed" type="date" value="${t.completedDate || ""}"></label>
+        </div>
         <label class="field">メモ<textarea id="t_note" rows="2">${esc(t.note || "")}</textarea></label>
         <div class="err" id="t_err"></div>
       </div>
@@ -772,18 +785,37 @@ function openTaskModal(task) {
   back.addEventListener("click", (e) => { if (e.target === back) closeModal(); });
   back.querySelectorAll("[data-close]").forEach(b => b.onclick = closeModal);
 
+  // 完了日は status=done のときだけ表示。done に切替えたら未入力なら今日を補完。
+  const statusSel = back.querySelector("#t_status");
+  const completedWrap = back.querySelector("#t_completed_wrap");
+  const completedInput = back.querySelector("#t_completed");
+  function syncCompleted() {
+    const isDone = statusSel.value === "done";
+    completedWrap.style.display = isDone ? "" : "none";
+    if (isDone && !completedInput.value) completedInput.value = todayStr();
+  }
+  statusSel.onchange = syncCompleted;
+  syncCompleted();
+
   const err = back.querySelector("#t_err");
   back.querySelector("[data-save]").onclick = () => {
     const title = back.querySelector("#t_title").value.trim();
     const load = Number(back.querySelector("#t_load").value);
     const start = back.querySelector("#t_start").value;
     const end = back.querySelector("#t_end").value;
+    const status = statusSel.value;
+    const completed = completedInput.value;
     if (!title) { err.textContent = "タイトルを入力してください。"; return; }
     if (!start || !end) { err.textContent = "開始日・終了日を入力してください。"; return; }
     if (end < start) { err.textContent = "終了日は開始日以降にしてください。"; return; }
     if (!(load >= 0)) { err.textContent = "負担は0以上で入力してください。"; return; }
+    if (status === "done") {
+      if (!completed) { err.textContent = "完了日を入力してください。"; return; }
+      if (completed < start) { err.textContent = "完了日は開始日以降にしてください。"; return; }
+    }
     t.title = title; t.memberId = back.querySelector("#t_member").value; t.load = load;
-    t.startDate = start; t.endDate = end; t.status = back.querySelector("#t_status").value;
+    t.startDate = start; t.endDate = end; t.status = status;
+    t.completedDate = status === "done" ? completed : "";
     t.note = back.querySelector("#t_note").value.trim();
     if (isNew) data.tasks.push(t);
     closeModal(); render();
